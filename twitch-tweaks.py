@@ -36,7 +36,7 @@ __module_description__ = "Do Twitch better. Forked from PDog's twitch-title.py"
 # TODO: Figure out why get_current_status() sometimes doesn't print updated status <PDog>
 
 t = None
-pluginprefix = "twitchtweaks_"
+pluginprefix = "twtw_"
 
 
 class StreamParser:
@@ -146,13 +146,19 @@ def is_twitch():
 
 def get_current_status():
     """
-    Update the stream status every 10 minutes
+    Update the stream status
     """
-    global t
     parser = StreamParser(channel=None)
     parser.get_twitch_channels()
     parser.update_status()
-    t = threading.Timer(600, get_current_status)
+
+def run_update_loop():
+    """
+    Update the stream status every 10 minutes
+    """
+    global t
+    get_current_status()
+    t = threading.Timer(get_pref("refresh_rate"), run_update_loop)
     t.daemon = True
     t.start()
 
@@ -185,6 +191,7 @@ def unload_cb(userdata):
 Methods for handling plugin preferences
 """
 
+
 def init_pref():
     if get_pref("twitch_api_root") == None:
         set_pref("twitch_api_root", "https://api.twitch.tv/kraken")
@@ -207,6 +214,8 @@ def init_pref():
     if get_pref("lookup_offline_names") == None:
         set_pref("lookup_offline_names", 1)
 
+    if get_pref("refresh_rate") == None:
+        set_pref("refresh_rate", 600)
 
 def get_pref(key):
     global pluginprefix
@@ -217,9 +226,53 @@ def set_pref(key,value):
     return hexchat.set_pluginpref(pluginprefix + key, value)
 
 
+"""
+Command hook callbacks
+"""
+
+twtwset_help_text = "Usage: TWTWSET <name> <value...> - Sets/gets the value of a twitch-tweaks configuration variable"
+twtwrefresh_help_text = "Usage: TWTWREFRESH - Forces twitch-tweaks to refresh the statuses of all Twitch channels"
+twtwlist_help_text = "Usage: TWTWLIST - Lists all preferences set for twitch-tweaks"
+
+def twtwset_cb(word, word_eol, userdata):
+    global twtwset_help_text, pluginprefix
+    if len(word) < 2:
+        print("Incorrect syntax. "+twtwset_help_text)
+    else:
+        key = word[1]
+        if (get_pref(key) == None):
+            print("Unknown variable name. Use TWTWLIST to see existing variables")
+        else:
+            if len(word) > 2:
+                set_pref(key, word_eol[2])
+            print("{0} = {1}".format(key, get_pref(key)))
+    
+    return hexchat.EAT_ALL
+
+
+def twtwrefresh_cb(word, word_eol, userdata):
+    global twtwset_help_text
+    get_current_status()
+    print("Refreshed all Twitch channels!")
+    return hexchat.EAT_ALL
+
+
+def twtwlist_cb(word, word_eol, userdata):
+    global twtwset_help_text, pluginprefix
+    for key in hexchat.list_pluginpref():
+        if key.startswith(pluginprefix):
+            cleanKey = key[len(pluginprefix):]
+            print("{0} = {1}".format(cleanKey, get_pref(cleanKey)))
+
+    return hexchat.EAT_ALL
+
+
 init_pref()
-get_current_status()
-hexchat.hook_print("You Join", join_cb)
+run_update_loop()
+hexchat.hook_print("You Join", join_cb, hexchat.PRI_LOWEST)
+hexchat.hook_command("TWTWSET", twtwset_cb, help=twtwset_help_text)
+hexchat.hook_command("TWTWREFRESH", twtwrefresh_cb, help=twtwrefresh_help_text)
+hexchat.hook_command("TWTWLIST", twtwlist_cb, help=twtwlist_help_text)
 hexchat.hook_unload(unload_cb)
 
 hexchat.prnt(__module_name__ + " version " + __module_version__ + " loaded")
